@@ -20,7 +20,8 @@ def aux_click(idx_time, idx_user, idx_livestream, idx_cnt,
     p2 = np.exp(theta[userId,] + epsilon[timeId,])
 
     temp = np.hstack((p1, p2))
-    mu[index_click_pos,] = temp/np.sum(temp)
+    aa = np.tile(np.sum(temp, axis=1).reshape((-1, 1)), np.shape(temp)[1])
+    mu[index_click_pos,] = temp/(aa + 1e-30)
     return mu
 
 def expected_aux(K, click_nonCens, idx_cnt, mu):
@@ -85,9 +86,12 @@ def get_phi(U, train_user, K, a, c1, c2, theta_shp, theta_rte, click_nonCens, in
     _phi_rte = np.ones((U, 1)) * c2
     temp_phi = theta_shp / theta_rte
     for u in train_user:
-        ind_user = index_perUser[u][0]
-        N = len(ind_user)
-        mat2 = np.array(temp_phi[click_nonCens[:, idx_user][ind_user],]).reshape((N, K))
+        # ind_user = index_perUser[u][0]
+        # N = len(ind_user)
+        mat2 = np.array(temp_phi[u, ])
+        # mat2 = np.array(temp_phi[click_nonCens[:, idx_user][ind_user],]).reshape((N, K))
+        # sum over K
+        # mat2 = np.sum(mat2, axis=1)
         _phi_rte[u, ] = _phi_rte[u, ]+np.sum(mat2)
     return _phi_shp, _phi_rte
 
@@ -96,8 +100,9 @@ def get_eta(L, train_livestream, K, b, d1, d2, beta_shp, beta_rte, click_nonCens
     _eta_rte = np.ones((L, 1)) * d2
     temp_eta = beta_shp / beta_rte
     for u in train_livestream:
-        ind_user = index_perLivestream[u][0]
-        N = len(ind_user)
-        mat2 = np.array(temp_eta[click_nonCens[:, idx_livestream][ind_user],]).reshape((N, K))
+        # ind_user = index_perLivestream[u][0]
+        # N = len(ind_user)
+        mat2 = np.array(temp_eta[u, ])
+        # mat2 = np.array(temp_eta[click_nonCens[:, idx_livestream][ind_user],]).reshape((N, K))
         _eta_rte[u, ] = _eta_rte[u, ]+np.sum(mat2)
     return _eta_shp, _eta_rte

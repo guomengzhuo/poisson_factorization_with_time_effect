@@ -17,7 +17,7 @@ parser.add_argument('--d1', type=float, default=0.3, help='shape para for eta')
 parser.add_argument('--d2', type=float, default=0.5, help='rate para for eta')
 parser.add_argument('--e1', type=float, default=0.1, help='shape para for eps')
 parser.add_argument('--e2', type=float, default=0.3, help='rate para for eps')
-parser.add_argument('--K', type=int, default=5, help='number of latent elements')
+parser.add_argument('--K', type=int, default=10, help='number of latent elements')
 
 parser.add_argument('--idx_time', type=int, default=0, help='position of time col')
 parser.add_argument('--idx_user', type=int, default=1, help='position of user col')
@@ -25,8 +25,11 @@ parser.add_argument('--idx_livestream', type=int, default=2, help='position of l
 parser.add_argument('--idx_cnt', type=int, default=3, help='position of cnt col')
 
 parser.add_argument('--max_iter', type=int, default=2000, help='maximum number of iterations')
-parser.add_argument('--eval', type=int, default=20, help='report frequency')
+parser.add_argument('--eval', type=int, default=10, help='report frequency')
 parser.add_argument('--tol', type=float, default=0.01, help='stopping criterion')
+
+parser.add_argument('--num_train_user', type=float, default=0.8, help='percent of train user')
+parser.add_argument('--num_train_live', type=float, default=0.8, help='percent of train livestream')
 
 args = parser.parse_args()
 
@@ -34,31 +37,7 @@ args = parser.parse_args()
 
 if __name__ == '__main__':
     set_seed()
-    # all data
-    click_train = np.array([
-        [0, 0, 0, 0],
-        [0, 0, 2, 5],
-        [0, 1, 0, 2],
-        [0, 1, 1, 1],
-        [0, 0, 1, 3],
-        [1, 1, 3, 0],
-        [1, 1, 0, 1],
-        [1, 2, 2, 5],
-        [1, 1, 4, 2],
-        [1, 2, 1, 1],
-        [1, 2, 0, 3],
-        [2, 0, 3, 1],
-        [2, 1, 0, 0],
-        [2, 2, 2, 3],
-        [2, 3, 0, 6],
-        [2, 2, 1, 0],
-        [2, 1, 1, 1],
-        [2, 0, 4, 0],
-    ])
-
-    # training set id
-    train_user = [0, 1, ]
-    train_livestream = [2, 3, 4]
+    click_train, train_user, train_livestream = data_loader.load_data(args.num_train_user, args.num_train_live)
     train_time = [0, 1, 2]
 
     idx_time = args.idx_time
@@ -83,14 +62,14 @@ if __name__ == '__main__':
     K = args.K
 
     # initialization
-    phi_init = np.random.gamma(c1, c2, size=U)
-    eta_init = np.random.gamma(d1, d2, size=L)
-    epsilon_init = np.random.gamma(e1, e2, size=(Time, K))
+    phi_init = np.random.gamma(c1, c2, size=U) * 5
+    eta_init = np.random.gamma(d1, d2, size=L) * 5
+    epsilon_init = np.random.gamma(e1, e2, size=(Time, K)) * 5
     # generate theta/beta
     theta_init = np.random.gamma(shape=a * np.ones_like(np.reshape(phi_init, (1, -1))),
-                                 scale=np.reshape(phi_init, (1, -1)), size=(K, U)).T
+                                 scale=np.reshape(phi_init, (1, -1)), size=(K, U)).T *5
     beta_init = np.random.gamma(shape=b * np.ones_like(np.reshape(eta_init, (1, -1))),
-                                scale=np.reshape(eta_init, (1, -1)), size=(K, L)).T
+                                scale=np.reshape(eta_init, (1, -1)), size=(K, L)).T * 5
 
     theta_shp = theta_init
     theta_rte = theta_init / theta_init
@@ -124,7 +103,12 @@ if __name__ == '__main__':
     max = args.max_iter
     eval = args.eval
 
+    # LL and ELBO save
+    ll_result = []
+    elbo_result = []
+    iter_result = []
     while (abs(diff) > tol and iter <= max):
+
         # update parameter
         theta_shp, theta_rte = model.get_theta(U, train_user, Time, K, a, click_train,
                                                beta_shp, beta_rte, epsilon_shp, epsilon_rte,
@@ -149,7 +133,7 @@ if __name__ == '__main__':
         Za, Zb = model.expected_aux(K, click_train, idx_cnt, mu_z)
 
         # iteration evaluation
-        if (iter % eval == 0):
+        if (iter % eval == 0 or iter==1):
             ELBO_new = get_ELBO.ELBO(K, Za, Zb, mu_z, index_click_pos, click_train, idx_time, idx_user, idx_livestream,
                                      theta_shp, theta_rte,
                                      beta_shp, beta_rte,
@@ -158,7 +142,7 @@ if __name__ == '__main__':
                                      phi_shp, phi_rte,
                                      eta_shp, eta_rte,
                                      )
-            diff = ELBO_new - ELBO_pre
+            diff = (ELBO_new - ELBO_pre)/ELBO_pre
             ELBO_pre = ELBO_new
             data_ll = get_ELBO.data_loglike(theta_shp / theta_rte, beta_shp / beta_rte, epsilon_shp / epsilon_rte,
                                             idx_time, idx_user, idx_livestream, idx_cnt, click_train)
@@ -166,5 +150,12 @@ if __name__ == '__main__':
             ll_pre = data_ll
             print("At iteration {}, diff(ELBO) = {}, new ELBO={}, data_ll={}, diff_ll={}".format(iter, diff, ELBO_new,
                                                                                                  data_ll, ll_diff))
+            ll_result.append(data_ll)
+            elbo_result.append(ELBO_new)
+            iter_result.append(iter)
         iter += 1
-
+    # save results
+    theta = theta_shp / theta_rte
+    beta = beta_shp / beta_rte
+    epsilon = epsilon_shp / epsilon_rte
+    data_loader.save_result(ll_result, elbo_result, iter_result, theta, beta, epsilon)
